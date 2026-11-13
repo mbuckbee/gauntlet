@@ -1,6 +1,6 @@
 ---
 name: gauntlet
-description: "Review changed code for reuse, quality, efficiency, security vulnerabilities, test coverage, UI drift, and accessibility. Fix any issues found. Use when the user asks to 'gauntlet', 'run the gauntlet', 'review', 'code review', 'simplify', 'check security', 'audit code', 'find vulnerabilities', 'check accessibility', or 'check test coverage'."
+description: "Review changed code for reuse, quality, efficiency, security vulnerabilities, test coverage, UI drift, and accessibility. Fix any issues found. Use when the user asks to 'gauntlet', 'run the gauntlet', 'review', 'code review', 'simplify', 'check security', 'audit code', 'find vulnerabilities', 'check accessibility', 'check test coverage', 'dead code', 'unused code', or 'unused exports'."
 argument-hint: "[reviewer ...] [diff-range]"
 ---
 
