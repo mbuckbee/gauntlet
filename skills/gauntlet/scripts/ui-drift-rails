@@ -10,7 +10,7 @@
 # Prints one JSON document. Exit 0 always; a missing sidecar or a non-Rails
 # repo prints {"skipped": "..."} so callers never block on this tool.
 #
-# "Introduced" is decided by lib/diff_filter.rb (shared with ui-drift-js).
+# "Introduced" is decided by lib/diff_filter.rb (ui-drift-js uses the Node port, lib/diff-filter.cjs).
 
 require "optparse"
 require "tmpdir"

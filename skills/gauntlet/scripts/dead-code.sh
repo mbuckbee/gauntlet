@@ -13,7 +13,8 @@
 set -euo pipefail
 
 SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-NORMALIZE="$SKILL_DIR/scripts/normalize.py"
+NORMALIZE_KNIP="$SKILL_DIR/scripts/normalize-knip.cjs"
+NORMALIZE_SPOOM="$SKILL_DIR/scripts/normalize-spoom.rb"
 SPOOM_GEMFILE="$SKILL_DIR/spoom/Gemfile"
 KNIP_VERSION="5.88.1"
 
@@ -54,7 +55,7 @@ run_knip() {
   if ! out="$(cd "$1" && $(knip_cmd) --no-progress --no-exit-code --reporter json 2>"$TMP/knip.err")"; then
     echo "knip failed in $1:" >&2; tail -20 "$TMP/knip.err" >&2; return 2
   fi
-  printf '%s' "$out" | python3 "$NORMALIZE" knip
+  printf '%s' "$out" | node "$NORMALIZE_KNIP"
 }
 
 # run_spoom <dir> → normalized lines on stdout
@@ -63,7 +64,7 @@ run_spoom() {
     BUNDLE_GEMFILE="$SPOOM_GEMFILE" bundle install --quiet >&2 || { echo "spoom bundle install failed" >&2; return 2; }
   fi
   (cd "$1" && BUNDLE_GEMFILE="$SPOOM_GEMFILE" bundle exec spoom deadcode 2>&1 || true) \
-    | grep -v "ostruct" | python3 "$NORMALIZE" spoom
+    | grep -v "ostruct" | ruby "$NORMALIZE_SPOOM"
 }
 
 if [ "$MODE" = diff ]; then

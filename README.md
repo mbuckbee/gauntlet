@@ -67,8 +67,7 @@ For repos with a `package.json`: Next.js, React, Astro, plain CSS or CSS Modules
 
 | Tool | What it adds | Install |
 |---|---|---|
-| Node 20.19+ and Ruby | Run the lint and dead-code scripts (the lint wrapper is a Ruby script that calls Node) | Your usual version manager |
-| Python 3 | Normalizes dead-code output | Preinstalled on macOS and most Linux |
+| Node 20.19+ | Runs the lint and dead-code scripts | Your usual version manager |
 | ui-lint (ESLint + stylelint, bundled config) | Exact UI drift candidates: inline styles, raw colors, emoji used as icons, missing alt text and labels | `cd $GAUNTLET/ui-lint && npx npm@11 ci` |
 | knip | New dead code: exports, files and dependencies the branch orphans | Nothing to install. It runs the repo's own `knip` if present, otherwise `npx knip`. The repo needs its `node_modules` installed |
 
@@ -81,13 +80,12 @@ For repos whose `Gemfile` includes `rails`.
 | Tool | What it adds | Install |
 |---|---|---|
 | Ruby and Bundler | Run the lint and dead-code scripts | Your usual version manager |
-| Python 3 | Normalizes dead-code output | Preinstalled on macOS and most Linux |
 | [guardrails](https://github.com/meticulous/guardrails) (`ui_guardrails`) | Exact UI drift candidates in views, components, helpers, stylesheets and Stimulus controllers | `git clone https://github.com/meticulous/guardrails ~/.claude/vendor/guardrails && cd ~/.claude/vendor/guardrails && bundle install` |
 | spoom | New dead code: methods, classes and constants the branch orphans | `BUNDLE_GEMFILE=$GAUNTLET/spoom/Gemfile bundle install` |
 
 Set `GUARDRAILS_DIR` to keep the guardrails clone somewhere else. Spoom runs from gauntlet's own bundle, so don't add it to your app's Gemfile.
 
-A Rails app that also has a `package.json` gets both dead-code tools; the knip row above applies to it too.
+A Rails app that also has a `package.json` gets both dead-code tools; the knip row above applies to it too, and needs Node.
 
 ### Any project with a UI
 

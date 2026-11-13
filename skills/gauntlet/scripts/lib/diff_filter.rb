@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
-# Shared by ui-drift-rails and ui-drift-js: parse `git diff -U0 base...head`
+# Used by ui-drift-rails (ui-drift-js uses the Node port, diff-filter.cjs; keep
+# the two in step): parse `git diff -U0 base...head`
 # and decide whether a lint finding is drift the diff INTRODUCED.
 #
 # "Introduced" means: on a line the diff added, and the drift string (the
