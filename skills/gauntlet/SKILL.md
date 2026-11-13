@@ -32,11 +32,13 @@ If the repo has a `REVIEW.md`, read it. It says what failure looks like here, wh
 |---|---|---|
 | Reuse & Structure | `references/structure.md` | always |
 | Code Quality | `references/quality.md` | always |
-| Efficiency | `references/efficiency.md` | always |
+| Efficiency | `references/efficiency.md` | when the diff changes code |
 | Security | `references/security.md` | always |
-| Test Coverage | `references/tests.md` | always |
+| Test Coverage | `references/tests.md` | when the diff changes code |
 | UI Drift | `references/ui-drift.md` | when the diff touches UI |
 | Accessibility | `references/accessibility.md` | when the diff touches UI |
+
+**Docs-only diffs.** If every changed file is documentation (`.md`, `.mdx`, `.txt`, `.rst`, `.adoc`, or an image), the diff changes no code: skip Efficiency and Test Coverage and launch only Reuse & Structure, Code Quality and Security. Name the skipped reviewers in the summary. A reviewer named in the arguments always runs.
 
 **UI trigger:** the diff touches templates or components (`.jsx/.tsx/.vue/.svelte/.astro/.erb/.html`, `app/views`, `app/components`, `components/`), stylesheets, design tokens, or client-side behavior files.
 
@@ -79,6 +81,6 @@ Aggregate the findings that survive and fix ALL issues directly — including pr
 
 Calling commands rely on these three lists, so always give all three, writing "none" for an empty one:
 
-- **Fixed**: briefly, what was fixed. Group security findings by severity (critical, high, medium, low) and say how many findings the refutation pass rejected. Include a dead-code line from the Reuse & Structure reviewer's script run: `none new`, `n deleted`, `tool error: …`, or `not run`. Confirm the code was clean if no issues were found.
+- **Fixed**: briefly, what was fixed, and which reviewers ran or were skipped. Group security findings by severity (critical, high, medium, low) and say how many findings the refutation pass rejected. Include a dead-code line from the Reuse & Structure reviewer's script run: `none new`, `n deleted`, `tool error: …`, or `not run`. Confirm the code was clean if no issues were found.
 - **Needs a decision**: the three exceptions above, each with its finding and proposed fix; any `confirmed` security finding left unfixed, with its severity; and `needs_validation` leads with no severity, each with its missing fact and the owner's check.
 - **Couldn't verify**: the agents' Couldn't-verify lists as one short section, without duplicates, so the gaps are visible rather than read as a clean pass.
