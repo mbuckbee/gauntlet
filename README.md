@@ -25,18 +25,6 @@ Things it caught before merge:
 - A staff login that looped until the browser gave up with "too many redirects".
 - An admin endpoint that was exempt from CSRF protection. The hole was older than the PR, and the review still found it.
 
-### What it costs
-
-A reviewed PR used about 1.8 million price-weighted tokens end to end. Review and shipping took 37% of all Claude Code usage over the same period. That is about 4.5 million weighted tokens per real defect caught. The parallel reviewers are most of the cost, so a docs-only diff now skips two of them.
-
-### What it won't do
-
-- It grades generously. Fresh agents re-graded 69 findings that the review had called Important, and 28% would actually have caused harm. The rest were edge cases, test gaps and refactors, which are worth fixing but less urgent.
-- It checks the diff against itself. Every production defect that got past it came from how an outside system really behaves: API list caps, rate limits, busy errors. If your code calls a third-party API, describe that API's failure modes in your repo's `REVIEW.md`.
-- The catch rate is an estimate. 54 caught against 9 escaped suggests it stopped most harmful defects. Nearly every PR was reviewed, so there was no control group to compare with.
-
-These figures come from the version of the skill that preceded this repo. That version had no docs-only rule and capped each reviewer at three findings.
-
 ## What it does
 
 1. Works out the diff: a range you pass, or the branch's commits plus uncommitted changes.
