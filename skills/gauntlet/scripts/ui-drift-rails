@@ -1,0 +1,118 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Runs meticulous/guardrails (ui_guardrails) in sidecar mode against a Rails
+# repo and keeps only the UI drift a diff introduced. Read-only: the audit runs
+# on a `git archive` export of HEAD, never the working tree.
+#
+#   ui-drift-rails [--base origin/main] [--head HEAD] [--repo .]
+#
+# Prints one JSON document. Exit 0 always; a missing sidecar or a non-Rails
+# repo prints {"skipped": "..."} so callers never block on this tool.
+#
+# "Introduced" is decided by lib/diff_filter.rb (shared with ui-drift-js).
+
+require "optparse"
+require "tmpdir"
+require_relative "lib/diff_filter"
+
+GUARDRAILS_DIR = File.expand_path(ENV.fetch("GUARDRAILS_DIR", "~/.claude/vendor/guardrails"))
+UI_PATHS = %w[app/views app/components app/javascript app/helpers app/assets/stylesheets config/locales].freeze
+
+opts = { base: "origin/main", head: "HEAD", repo: "." }
+OptionParser.new do |o|
+  o.on("--base REF") { |v| opts[:base] = v }
+  o.on("--head REF") { |v| opts[:head] = v }
+  o.on("--repo DIR") { |v| opts[:repo] = v }
+end.parse!
+
+include UiDrift
+
+repo = git(opts[:repo], "rev-parse", "--show-toplevel").strip
+emit(skipped: "not a Rails repo (no Gemfile with rails)") unless File.read(File.join(repo, "Gemfile")).match?(/gem ["']rails["']/) rescue emit(skipped: "not a Rails repo (no Gemfile)")
+emit(skipped: "guardrails sidecar missing: git clone https://github.com/meticulous/guardrails #{GUARDRAILS_DIR} && cd #{GUARDRAILS_DIR} && bundle install") unless File.exist?(File.join(GUARDRAILS_DIR, "Gemfile.lock"))
+
+diff = DiffFilter.new(repo, opts[:base], opts[:head], UI_PATHS)
+range = diff.range
+emit(skipped: "diff touches no UI files", range: range) if diff.empty?
+
+# --- Run guardrails on an export of HEAD.
+head_sha = git(repo, "rev-parse", "--short", opts[:head]).strip
+ruby_version = File.read(File.join(GUARDRAILS_DIR, ".tool-versions"))[/ruby (\S+)/, 1] rescue nil
+raw = {}
+Dir.mktmpdir("ui-drift-") do |dir|
+  tree = git(repo, "ls-tree", "--name-only", opts[:head]).split("\n")
+  paths = %w[app config guardrails.yml tailwind.config.js] & tree
+  export(repo, opts[:head], paths, dir)
+  env = { "BUNDLE_GEMFILE" => File.join(GUARDRAILS_DIR, "Gemfile"), "FORMAT" => "json" }
+  # The parent ruby's bin dir leads PATH, so a bare `bundle` would run on it.
+  # Put the sidecar's pinned ruby (from its .tool-versions) first instead.
+  if ruby_version
+    env["ASDF_RUBY_VERSION"] = ruby_version
+    pinned = File.expand_path("~/.asdf/installs/ruby/#{ruby_version}/bin")
+    env["PATH"] = "#{pinned}:#{ENV['PATH']}" if Dir.exist?(pinned)
+  end
+  %w[audit icons].each do |task|
+    out, err, = Open3.capture3(env, "bundle", "exec", "rake", "-f", File.join(GUARDRAILS_DIR, "lib/tasks/guardrails.rake"), "guardrails:#{task}", chdir: dir)
+    raw[task] = JSON.parse(out)
+  rescue JSON::ParserError
+    emit(skipped: "guardrails:#{task} produced no JSON", stderr: err.to_s.lines.last(5).join)
+  end
+end
+audit = raw["audit"]
+icons = raw["icons"]
+
+# --- Filter to introduced drift.
+findings = []
+line_finding = lambda do |check, f, token|
+  findings << check.merge(file: f["file"], line: f["line"], snippet: f["snippet"]) if diff.introduced?(f["file"], f["line"], token)
+end
+
+audit["violations"].each { |f| line_finding.({ check: f["type"] }, f, f["value"] || f["snippet"]) }
+audit["a11y"].each { |f| line_finding.({ check: "a11y_#{f['rule']}" }, f, f["snippet"]) }
+icons["inline_svgs"].each { |f| line_finding.({ check: "inline_svg" }, f, f["snippet"]) }
+icons["emoji"].each { |f| line_finding.({ check: "emoji_icon", char: f["snippet"], tier: f["tier"] }, f, f["snippet"]) }
+
+# Multi-site findings: keep when the diff adds at least one occurrence.
+audit["classitis"].each do |f|
+  token = f["classes"].join(" ")
+  hits = f["occurrences"].select do |o|
+    diff.fresh?(o["file"], o["line"]) &&
+      diff.removed_near(o["file"], o["line"]).none? { |r| f["classes"].all? { |c| r.include?(c) } }
+  end
+  findings << { check: "classitis", tag: f["tag"], classes: token, total: f["count"], added_at: hits.map { |o| "#{o['file']}:#{o['line']}" } } if hits.any?
+end
+audit["patterns"].each do |f|
+  hits = f["occurrences"].select { |o| diff.fresh?(o["file"], o["line"]) }
+  findings << { check: "repeated_markup", shape: f["shape"], total: f["count"], added_at: hits.map { |o| "#{o['file']}:#{o['line']}" } } if hits.any?
+end
+audit["similar_partials"].each do |f|
+  next unless diff.new_files.include?(f["file_a"]) || diff.new_files.include?(f["file_b"])
+  findings << { check: "similar_partial", file_a: f["file_a"], file_b: f["file_b"], score: f["score"] }
+end
+
+# Stimulus: an orphan is new if an added line references it; a dead controller
+# is new if the diff added its file or removed a reference to it.
+# Only real Stimulus references count: data-controller="a b", controller: "a",
+# data: { controller: "a" }. A bare substring (`all_competitors`) does not.
+stimulus_ref = ->(name) { /controller["']?\s*(?:=>|=|:)\s*["'][^"']*(?<![\w-])#{Regexp.escape(name)}(?![\w-])/ }
+added_src = ->(name) { diff.added_raw.any? { |l| l.match?(stimulus_ref.(name)) } }
+removed_src = ->(name) { diff.all_removed.any? { |l| l.match?(stimulus_ref.(name)) } }
+audit.dig("stimulus", "orphaned").to_a.each { |n| findings << { check: "stimulus_orphaned", controller: n } if added_src.(n) }
+audit.dig("stimulus", "dead").to_a.each do |n|
+  file_hint = n.tr("-", "_").sub("__", "/")
+  findings << { check: "stimulus_dead", controller: n } if diff.new_files.any? { |f| f.include?("#{file_hint}_controller") } || removed_src.(n)
+end
+
+emit(
+  range: range,
+  head: head_sha,
+  added_lines: diff.added_raw.size,
+  raw_counts: {
+    violations: audit["violations"].size, a11y: audit["a11y"].size, classitis: audit["classitis"].size,
+    patterns: audit["patterns"].size, similar_partials: audit["similar_partials"].size,
+    inline_svgs: icons["inline_svgs"].size, emoji: icons["emoji"].size
+  },
+  introduced: findings.size,
+  findings: findings
+)

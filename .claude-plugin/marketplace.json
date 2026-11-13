@@ -1,0 +1,12 @@
+{
+  "name": "gauntlet",
+  "description": "The gauntlet code-review skill for Claude Code",
+  "owner": { "name": "Michael Buckbee" },
+  "plugins": [
+    {
+      "name": "gauntlet",
+      "source": "./",
+      "description": "Code review that fixes what it finds: parallel reviewers for structure, quality, efficiency, security, tests, UI drift and accessibility."
+    }
+  ]
+}

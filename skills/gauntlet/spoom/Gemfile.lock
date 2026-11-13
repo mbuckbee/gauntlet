@@ -1,0 +1,44 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    erubi (1.13.1)
+    logger (1.7.0)
+    prism (1.9.0)
+    rbi (0.5.0)
+      prism (~> 1.0)
+      rbs (>= 4.0.1)
+    rbs (4.2.0)
+      logger
+      prism (>= 1.6.0)
+      tsort
+    rexml (3.4.4)
+    sorbet (0.6.13650)
+      sorbet-static (= 0.6.13650)
+    sorbet-runtime (0.6.13650)
+    sorbet-static (0.6.13650-aarch64-linux)
+    sorbet-static (0.6.13650-universal-darwin)
+    sorbet-static (0.6.13650-x86_64-linux)
+    sorbet-static-and-runtime (0.6.13650)
+      sorbet (= 0.6.13650)
+      sorbet-runtime (= 0.6.13650)
+    spoom (1.8.13)
+      erubi (>= 1.10.0)
+      prism (>= 0.28.0)
+      rbi (>= 0.4.2)
+      rbs (>= 4.0.0.dev.5)
+      rexml (>= 3.2.6)
+      sorbet-static-and-runtime (>= 0.5.10187)
+      thor (>= 0.19.2)
+    thor (1.5.0)
+    tsort (0.2.0)
+
+PLATFORMS
+  aarch64-linux
+  universal-darwin
+  x86_64-linux
+
+DEPENDENCIES
+  spoom
+
+BUNDLED WITH
+   2.5.16

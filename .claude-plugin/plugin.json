@@ -1,0 +1,8 @@
+{
+  "name": "gauntlet",
+  "version": "1.0.0",
+  "description": "Code review that fixes what it finds: parallel reviewers for structure, quality, efficiency, security, tests, UI drift and accessibility.",
+  "author": { "name": "Michael Buckbee" },
+  "repository": "https://github.com/mbuckbee/gauntlet",
+  "license": "MIT"
+}

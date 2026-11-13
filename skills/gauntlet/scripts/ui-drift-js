@@ -1,0 +1,91 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# UI drift for non-Rails repos (Next.js/React, Astro, plain CSS/CSS Modules).
+# Lints the HEAD versions of the UI files a diff changed with the ui-lint
+# sidecar (its own ESLint + stylelint config, never the repo's) and keeps only
+# the drift the diff introduced. Read-only: files come from `git archive`.
+#
+#   ui-drift-js [--base origin/main] [--head HEAD] [--repo .]
+#
+# Prints one JSON document, same shape as ui-drift-rails. Exit 0 always;
+# prints {"skipped": "..."} for Rails repos, diffs with no UI files, or a
+# missing sidecar. "Introduced" is decided by lib/diff_filter.rb.
+
+require "optparse"
+require "tmpdir"
+require_relative "lib/diff_filter"
+
+SIDECAR = File.expand_path(ENV.fetch("UI_LINT_DIR", File.join(__dir__, "..", "ui-lint")))
+UI_EXT = /\.(?:jsx?|tsx?|astro|vue|svelte|css|scss)\z/
+# Not shipped UI: tests, stories, build output, config, tooling scripts.
+SKIP_PATH = %r{
+  (?:\A|/)(?:node_modules|dist|build|out|coverage|vendor|public|\.next|\.astro|
+             tests?|spec|__tests__|__mocks__|e2e|smoke|scripts|\.storybook)/ |
+  \.(?:test|spec|stories|config|min)\.[^/]+\z | \.d\.ts\z
+}x
+
+opts = { base: "origin/main", head: "HEAD", repo: "." }
+OptionParser.new do |o|
+  o.on("--base REF") { |v| opts[:base] = v }
+  o.on("--head REF") { |v| opts[:head] = v }
+  o.on("--repo DIR") { |v| opts[:repo] = v }
+end.parse!
+
+include UiDrift
+
+begin
+  repo = git(opts[:repo], "rev-parse", "--show-toplevel").strip
+  gemfile = File.join(repo, "Gemfile")
+  emit(skipped: "Rails repo: use ui-drift-rails") if File.exist?(gemfile) && File.read(gemfile).match?(/gem ["']rails["']/)
+  emit(skipped: "ui-lint sidecar missing: cd #{SIDECAR} && npx npm@11 ci") unless File.exist?(File.join(SIDECAR, "node_modules/eslint/package.json"))
+
+  range = "#{opts[:base]}...#{opts[:head]}"
+  changed = git(repo, "diff", "--name-only", "--diff-filter=AMR", range).split("\n")
+  ui_files = changed.select { |f| f.match?(UI_EXT) && !f.match?(SKIP_PATH) }
+  emit(skipped: "diff touches no UI files", range: range) if ui_files.empty?
+
+  diff = DiffFilter.new(repo, opts[:base], opts[:head], ui_files)
+  emit(skipped: "diff adds no lines to UI files", range: range) if diff.empty?
+  files = diff.added_files
+
+  notes = []
+  if files.any? { |f| f.match?(/\.(?:vue|svelte)\z/) }
+    notes << "no Vue/Svelte template parser: .vue/.svelte files get <style> raw_color checks only"
+  end
+
+  head_sha = git(repo, "rev-parse", "--short", opts[:head]).strip
+  lint = Dir.mktmpdir("ui-drift-js-") do |dir|
+    export(repo, opts[:head], files, dir)
+    out, err, status = Open3.capture3({ "NODE_NO_WARNINGS" => "1" }, "node", File.join(SIDECAR, "run.mjs"), "--root", dir, *files, chdir: SIDECAR)
+    begin
+      JSON.parse(out)
+    rescue JSON::ParserError
+      emit(skipped: "ui-lint produced no JSON (exit #{status.exitstatus})", stderr: err.to_s.lines.last(8).join)
+    end
+  end
+
+  # raw_color carries the literal as `value` (several can share a line).
+  findings = diff.filter(lint["findings"])
+                 .sort_by { |f| [f["file"], f["line"], f["column"].to_i] }
+                 .map do |f|
+                   out = f.slice("check", "file", "line", "snippet", "tier", "char")
+                   out["value"] = f["token"] if f["check"] == "raw_color"
+                   out
+                 end
+
+  result = {
+    range: range,
+    head: head_sha,
+    added_lines: diff.added_raw.size,
+    linted_files: files.size,
+    raw_counts: lint["raw_counts"],
+    introduced: findings.size,
+    findings: findings
+  }
+  result[:parse_errors] = lint["parse_errors"] if lint["parse_errors"].any?
+  result[:notes] = notes if notes.any?
+  emit(result)
+rescue StandardError => e
+  emit(skipped: "ui-drift-js failed: #{e.message}")
+end
