@@ -10,8 +10,8 @@ The numbers below come from an audit of 131 pull requests that gauntlet reviewed
 
 | | |
 |---|---|
-| Real defects caught | About 50, of which about 30 were likely to cause harm within a month |
-| Findings reported | About 520, at least 253 of them fixed in the same PR |
+| Real defects caught | 54, of which 34 were likely to cause harm within a month (scaled from a graded sample: 19 of 69 findings re-checked by fresh agents) |
+| Findings reported | 193 Important, 328 Nit and 41 Pre-existing, with at least 253 fixed in the same PR |
 | Tests | 58% of the test lines in reviewed PRs were added after the first draft, and test files changed in 97 of the 131 PRs |
 | False positives | 1 in a graded sample of 69 findings |
 | Escapes | 9 defects in reviewed code needed a follow-up fix |
@@ -25,13 +25,13 @@ Things it caught before merge:
 
 ### What it costs
 
-A reviewed PR used about 1.8 million price-weighted tokens end to end, and review and shipping took 37% of all Claude Code usage over the same period. That is about 5 million weighted tokens per real defect caught. Most of the cost is the parallel reviewers, which is why a docs-only diff now skips two of them.
+A reviewed PR used about 1.8 million price-weighted tokens end to end, and review and shipping took 37% of all Claude Code usage over the same period. That is about 4.5 million weighted tokens per real defect caught. Most of the cost is the parallel reviewers, which is why a docs-only diff now skips two of them.
 
 ### What it won't do
 
 - **It grades generously.** When fresh agents re-graded 69 findings the review had called Important, 28% would actually have caused harm. The rest were edge cases, test gaps and refactors: worth fixing, but not urgent.
 - **It checks the diff against itself.** Every production defect that got past it came from how an outside system really behaves: API list caps, rate limits, busy errors. If your code talks to a third-party API, say what its failure modes are in your repo's `REVIEW.md`.
-- **The catch rate is an estimate.** About 50 caught against 9 escaped suggests most harmful defects were stopped, but nearly every PR was reviewed, so there was no control group to compare with.
+- **The catch rate is an estimate.** 54 caught against 9 escaped suggests most harmful defects were stopped, but nearly every PR was reviewed, so there was no control group to compare with.
 
 These figures were measured on the version of the skill that preceded this repo, before the docs-only rule and before the per-reviewer cap on findings was removed.
 
