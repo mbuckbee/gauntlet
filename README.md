@@ -10,7 +10,7 @@ The numbers below come from an audit of 131 pull requests that gauntlet reviewed
 
 | | |
 |---|---|
-| Real defects caught | 54, of which 34 were likely to cause harm within a month (scaled from a graded sample: 19 of 69 findings re-checked by fresh agents) |
+| Real defects caught | 54, of which 34 were likely to cause harm within a month |
 | Findings reported | 193 Important, 328 Nit and 41 Pre-existing, with at least 253 fixed in the same PR |
 | Tests | 58% of the test lines in reviewed PRs were added after the first draft, and test files changed in 97 of the 131 PRs |
 | False positives | 1 in a graded sample of 69 findings |
