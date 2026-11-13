@@ -6,7 +6,7 @@ A code-review skill for [Claude Code](https://claude.com/claude-code). It sends 
 
 Code written with an agent arrives faster than anyone can read it closely. Gauntlet is the second look: reviewers that never heard why a shortcut seemed fine, a refutation pass before a security finding is believed, and fixes applied in the same run.
 
-The numbers below come from one developer's week of real work (5–12 November 2026), audited afterwards. Gauntlet reviewed 131 of the 158 pull requests merged that week across 12 repositories.
+The numbers below come from an audit of 131 pull requests that gauntlet reviewed across 12 repositories.
 
 | | |
 |---|---|
@@ -14,7 +14,7 @@ The numbers below come from one developer's week of real work (5–12 November 2
 | Findings reported | About 520, at least 253 of them fixed in the same PR |
 | Tests | 58% of the test lines in reviewed PRs were added after the first draft, and test files changed in 97 of the 131 PRs |
 | False positives | 1 in a graded sample of 69 findings |
-| Escapes | 9 defects in reviewed code needed a follow-up fix that week |
+| Escapes | 9 defects in reviewed code needed a follow-up fix |
 
 Things it caught before merge:
 
@@ -25,7 +25,7 @@ Things it caught before merge:
 
 ### What it costs
 
-A reviewed PR used about 1.8 million price-weighted tokens end to end, and review and shipping took 37% of that week's Claude Code usage. That is about 5 million weighted tokens per real defect caught. Most of the cost is the parallel reviewers, which is why a docs-only diff now skips two of them.
+A reviewed PR used about 1.8 million price-weighted tokens end to end, and review and shipping took 37% of all Claude Code usage over the same period. That is about 5 million weighted tokens per real defect caught. Most of the cost is the parallel reviewers, which is why a docs-only diff now skips two of them.
 
 ### What it won't do
 
