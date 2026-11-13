@@ -1,10 +1,12 @@
 # gauntlet
 
-A code-review skill for [Claude Code](https://claude.com/claude-code). It sends your diff past a set of parallel reviewers, checks the security findings a second time, and then fixes what survives.
+A code-review skill for [Claude Code](https://claude.com/claude-code). It runs parallel reviewers over your diff, double-checks the security findings, and fixes the confirmed ones.
 
 ## Why use gauntlet
 
-Code written with an agent arrives faster than anyone can read it closely. Gauntlet is the second look: reviewers that never heard why a shortcut seemed fine, a refutation pass before a security finding is believed, and fixes applied in the same run.
+Code written with an agent arrives faster than anyone can read it closely.
+
+Gauntlet reads it before it merges. Separate reviewers check the diff for bugs, security holes, missing tests and UI problems. Gauntlet then fixes what they find and writes the missing tests in the same PR. What reaches you is a short list of the decisions that need a person.
 
 The numbers below come from an audit of 131 pull requests that gauntlet reviewed across 12 repositories.
 
@@ -21,26 +23,26 @@ Things it caught before merge:
 - A certificate-expiry alert that checked only part of each wildcard domain, so real outages would have gone unalerted.
 - A dashboard card for failing CI that never turned red, because one CSS class overrode another.
 - A staff login that looped until the browser gave up with "too many redirects".
-- An admin endpoint that was exempt from CSRF protection. The hole was older than the PR; the review found it anyway.
+- An admin endpoint that was exempt from CSRF protection. The hole was older than the PR, and the review still found it.
 
 ### What it costs
 
-A reviewed PR used about 1.8 million price-weighted tokens end to end, and review and shipping took 37% of all Claude Code usage over the same period. That is about 4.5 million weighted tokens per real defect caught. Most of the cost is the parallel reviewers, which is why a docs-only diff now skips two of them.
+A reviewed PR used about 1.8 million price-weighted tokens end to end. Review and shipping took 37% of all Claude Code usage over the same period. That is about 4.5 million weighted tokens per real defect caught. The parallel reviewers are most of the cost, so a docs-only diff now skips two of them.
 
 ### What it won't do
 
-- **It grades generously.** When fresh agents re-graded 69 findings the review had called Important, 28% would actually have caused harm. The rest were edge cases, test gaps and refactors: worth fixing, but not urgent.
-- **It checks the diff against itself.** Every production defect that got past it came from how an outside system really behaves: API list caps, rate limits, busy errors. If your code talks to a third-party API, say what its failure modes are in your repo's `REVIEW.md`.
-- **The catch rate is an estimate.** 54 caught against 9 escaped suggests most harmful defects were stopped, but nearly every PR was reviewed, so there was no control group to compare with.
+- It grades generously. Fresh agents re-graded 69 findings that the review had called Important, and 28% would actually have caused harm. The rest were edge cases, test gaps and refactors, which are worth fixing but less urgent.
+- It checks the diff against itself. Every production defect that got past it came from how an outside system really behaves: API list caps, rate limits, busy errors. If your code calls a third-party API, describe that API's failure modes in your repo's `REVIEW.md`.
+- The catch rate is an estimate. 54 caught against 9 escaped suggests it stopped most harmful defects. Nearly every PR was reviewed, so there was no control group to compare with.
 
-These figures were measured on the version of the skill that preceded this repo, before the docs-only rule and before the per-reviewer cap on findings was removed.
+These figures come from the version of the skill that preceded this repo. That version had no docs-only rule and capped each reviewer at three findings.
 
 ## What it does
 
 1. Works out the diff: a range you pass, or the branch's commits plus uncommitted changes.
-2. Launches one fresh agent per reviewer. Each reads only its own checklist and the diff, never the conversation, so it can't be talked into the author's reasoning.
+2. Launches one fresh agent per reviewer. Each reads only its own checklist and the diff. It doesn't see the conversation, so the author's reasoning can't sway it.
 3. Sends every confirmed Medium+ security finding to a second agent whose job is to refute it.
-4. Fixes what survives, proves each new test can fail, and returns three lists: **Fixed**, **Needs a decision**, **Couldn't verify**.
+4. Fixes the confirmed findings, proves each new test can fail, and returns three lists: **Fixed**, **Needs a decision**, **Couldn't verify**.
 
 | Reviewer | Runs | Checklist |
 |---|---|---|
@@ -87,7 +89,7 @@ If the repo has a `REVIEW.md`, gauntlet reads it and hands it to every reviewer.
 
 ## Setup
 
-Gauntlet runs with no setup: the reviewers only need Claude Code and git. The tools below add exact, script-driven checks on top. A missing tool is skipped and reported, never a failure, so install only the ones for your stack.
+Gauntlet runs with no setup: the reviewers only need Claude Code and git. The tools below add exact, script-driven checks on top. Gauntlet skips a missing tool and reports it. The run doesn't fail, so install only the tools for your stack.
 
 The commands use `$GAUNTLET` for the skill's folder:
 
@@ -104,7 +106,7 @@ For repos with a `package.json`: Next.js, React, Astro, plain CSS or CSS Modules
 | ui-lint (ESLint + stylelint, bundled config) | Exact UI drift candidates: inline styles, raw colors, emoji used as icons, missing alt text and labels | `cd $GAUNTLET/ui-lint && npx npm@11 ci` |
 | knip | New dead code: exports, files and dependencies the branch orphans | Nothing to install. It runs the repo's own `knip` if present, otherwise `npx knip`. The repo needs its `node_modules` installed |
 
-A plugin update replaces the plugin folder, including the installed lint packages. To install them once, clone this repo somewhere permanent, run `npx npm@11 ci` in its `skills/gauntlet/ui-lint`, and point `UI_LINT_DIR` at that folder in the `env` block of `~/.claude/settings.json`.
+A plugin update replaces the plugin folder, including the installed lint packages. To install them once, clone this repo somewhere permanent and run `npx npm@11 ci` in its `skills/gauntlet/ui-lint`. Then point `UI_LINT_DIR` at that folder in the `env` block of `~/.claude/settings.json`.
 
 ### Rails
 
@@ -118,7 +120,7 @@ For repos whose `Gemfile` includes `rails`.
 
 Set `GUARDRAILS_DIR` to keep the guardrails clone somewhere else. Spoom runs from gauntlet's own bundle, so don't add it to your app's Gemfile.
 
-A Rails app that also has a `package.json` gets both dead-code tools; the knip row above applies to it too, and needs Node.
+A Rails app that also has a `package.json` gets both dead-code tools. The knip row above applies to it too, and it needs Node.
 
 ### Any project with a UI
 
