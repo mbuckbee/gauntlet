@@ -1,6 +1,6 @@
 # gauntlet
 
-A code-review skill for [Claude Code](https://claude.com/claude-code). It runs parallel reviewers over your diff, double-checks the security findings, and fixes the confirmed ones.
+A code-review skill for [Claude Code](https://claude.com/claude-code). It runs parallel reviewers over your diff, has a second agent try to refute every serious finding, and fixes the ones that hold up.
 
 ## Why use gauntlet
 
@@ -28,8 +28,8 @@ Things it caught before merge:
 ## What it does
 
 1. Works out the diff: a range you pass, or the branch's commits plus uncommitted changes.
-2. Launches one fresh agent per reviewer. Each reads only its own checklist and the diff. It doesn't see the conversation, so the author's reasoning can't sway it.
-3. Sends every confirmed Medium+ security finding to a second agent whose job is to refute it.
+2. Launches one fresh agent per reviewer. Each grades its findings Important (would hurt in production) or Nit. Each reads only its own checklist and the diff. It doesn't see the conversation, so the author's reasoning can't sway it.
+3. Sends every Important finding, and every confirmed Medium+ security finding, to a second agent whose job is to refute it. Findings it disproves are dropped, and overstated ones are downgraded.
 4. Fixes the confirmed findings, proves each new test can fail, and returns three lists: **Fixed**, **Needs a decision**, **Couldn't verify**.
 
 | Reviewer | Runs | Checklist |

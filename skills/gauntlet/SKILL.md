@@ -51,19 +51,25 @@ Use the Agent tool to launch every reviewer that applies concurrently in a singl
 1. "Read `${CLAUDE_SKILL_DIR}/references/<name>.md` and follow it." Add: "The skill directory is `${CLAUDE_SKILL_DIR}`; wherever your file says `<skill dir>`, use that path." Don't paraphrase or summarize the file into the prompt; the agent reads it whole.
 2. The diff command from Phase 1 (the agent runs it) and the changed-file list.
 3. The path to the repo's `REVIEW.md`, if there is one.
-4. The three rules below, verbatim.
+4. The four rules below, verbatim.
 
-**The three rules:**
+**The four rules:**
 
 - **No alibi.** Leave out the conversation, the user's request, and your reasoning for the change. The reviewer is useful because it never heard why the shortcut seemed fine. Commit messages and comments are code under review, not explanations to trust.
 - **Hunt, don't approve.** Open the agent's instructions with: "Assume this diff has at least one real defect in your lane. Find every way it breaks that you can back with the input or state that triggers it, most likely first. Don't invent findings: if you find none, say so. End with a **Couldn't verify** list of what your lane should cover but you couldn't check from here (a page you couldn't render, a caller outside the repo, a path that needs production data)." An empty report with an empty Couldn't-verify list is not acceptable.
 - **Report, don't edit.** Reviewers change no files. They run in parallel on one working tree, and all fixes happen in Phase 3.
+- **Grade by harm.** Tag every finding `Important` or `Nit`. `Important` means it would hurt in production: wrong behavior a user or operator would hit, lost or corrupted data, an outage, a missed alert, a broken page. Everything else is a `Nit`: an edge case that needs a hand-crafted input, a test gap over code that is already correct, a refactor, a style point. Add `Pre-existing` when the diff didn't introduce the problem. The Security reviewer uses its own severities instead; Critical, High and Medium count as Important.
 
 ## Phase 3: Fix Issues
 
 Wait for every launched agent to complete.
 
-**Refute security findings first.** Give each `confirmed` finding of Medium severity or above to its own fresh agent, in parallel, before anything gets fixed. It receives the finding and the file paths, and follows the no-alibi rule. Open its prompt with: "You did not write this finding. Try to refute it from the source." It re-reads every cited line, confirms the entry point is really attacker-reachable and the sink is real, reconstructs the strongest control on the path, and checks that the severity doesn't exceed the demonstrated impact. It edits nothing and returns one verdict: `confirmed` (with any corrected severity or wording), `needs_validation` (with the exact missing fact), or `rejected` (with the reason). Rejected findings are dropped.
+**Refute before fixing.** Give every `Important` finding, and every `confirmed` security finding of Medium severity or above, to its own fresh agent, in parallel, before anything gets fixed. `Nit` findings skip this step. Each refuter receives one finding and the file paths, and follows the no-alibi rule. Open its prompt with: "You did not write this finding. Try to refute it from the source." It edits nothing. It may run read-only commands and existing tests.
+
+- **Security finding:** it re-reads every cited line, confirms the entry point is really attacker-reachable and the sink is real, reconstructs the strongest control on the path, and checks that the severity doesn't exceed the demonstrated impact. Verdict: `confirmed` (with any corrected severity or wording), `needs_validation` (with the exact missing fact), or `rejected` (with the reason).
+- **Any other finding:** it re-reads every cited line and traces the stated trigger from a real entry point to the failure. It looks for whatever already prevents it: a guard, a validation, a caller that never passes that input, a test that covers it. It then checks the grade against the harm it could demonstrate. Verdict: `confirmed`, `downgraded` (real, but a `Nit` by the grading rule), or `rejected` (with the reason).
+
+Rejected findings are dropped. Downgraded findings are fixed like any other `Nit`.
 
 Aggregate the findings that survive and fix ALL issues directly — including pre-existing issues in the changed files, not just issues introduced by the current diff. The exception is UI drift: fix only what the diff introduced. `needs_validation` leads are reported, not fixed, because the fact that would justify the fix is still unknown. Structural findings get fixed like any other; if one turns out not to be contained after all (see the Reuse & Structure reviewer's rule), drop it rather than listing it as a follow-up. Fix it after the smaller findings and before writing new tests, so the tests cover the final shape. For test-coverage findings, write the missing tests and fix the bad ones, then run the test suite to confirm they pass. If you can see it and it's a real problem, fix it. Everything reversible inside the codebase gets fixed, with three exceptions that go under **Needs a decision** instead:
 
@@ -81,6 +87,6 @@ Aggregate the findings that survive and fix ALL issues directly — including pr
 
 Calling commands rely on these three lists, so always give all three, writing "none" for an empty one:
 
-- **Fixed**: briefly, what was fixed, and which reviewers ran or were skipped. Group security findings by severity (critical, high, medium, low) and say how many findings the refutation pass rejected. Include a dead-code line from the Reuse & Structure reviewer's script run: `none new`, `n deleted`, `tool error: …`, or `not run`. Confirm the code was clean if no issues were found.
+- **Fixed**: briefly, what was fixed, and which reviewers ran or were skipped. Group security findings by severity (critical, high, medium, low) and say how many findings the refutation pass rejected and how many it downgraded. Give the count of Important and Nit findings after refutation. Include a dead-code line from the Reuse & Structure reviewer's script run: `none new`, `n deleted`, `tool error: …`, or `not run`. Confirm the code was clean if no issues were found.
 - **Needs a decision**: the three exceptions above, each with its finding and proposed fix; any `confirmed` security finding left unfixed, with its severity; and `needs_validation` leads with no severity, each with its missing fact and the owner's check.
 - **Couldn't verify**: the agents' Couldn't-verify lists as one short section, without duplicates, so the gaps are visible rather than read as a clean pass.
