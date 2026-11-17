@@ -19,4 +19,14 @@ Answer two questions about the diff: **is the new functionality sufficiently tes
 7. **Test hygiene**: misleading test names, dead/skipped tests touching the changed code (`xit`, `skip`, commented-out), copy-pasted tests that don't vary the thing their name claims to test.
 8. **Degenerate inputs**: test inputs too symmetric or uniform to tell a correct implementation from a plausibly-wrong one — palindromes in roundtrip/reversal tests, all-same-value buffers, identical values on both sides of a swap, zero where sign matters. Ask: would this input still pass if the implementation reversed the order, swapped the arguments, or was off by one? If yes, flag it.
 
+**Properties — what must always hold?**
+Example-based tests are written by the same agent that wrote the code and share its blind spots. For each of the riskiest behaviors you named, ask whether it has a property: a statement that should hold for every input, checked against many generated inputs. If it does and no test checks it, that's a finding. Properties worth looking for:
+- **Invariant**: parts sum to the whole (a rollup equals the sum of its rows, before and after any limit or grouping), a count never goes negative, output stays sorted or unique.
+- **Round-trip**: decode(encode(x)) == x for parsers, serializers, normalizers and escaping.
+- **Idempotency**: running a normalization, migration, retry or upsert twice equals running it once.
+- **Guard boundary**: a predicate that classifies inputs (root path, allowed host, valid code) agrees with a plain restatement of its rule on generated near-miss inputs (`""`, `"."`, `"/."`, `"//"`, trailing or doubled separators, case variants, unicode lookalikes).
+- **Equivalence (differential)**: for a refactor, rewrite or migration of existing behavior, the new code returns the same result as the old code on the same inputs, with any intended differences listed explicitly.
+
+For each one, write down the property in one sentence, the input domain and how to generate it, and the test file to put it in. If the repo already uses a property-testing library (fast-check, Hypothesis, proptest, Rantly, PropCheck, ...), use it. If not, specify a plain loop over a seeded random generator plus the hand-picked near-misses in the existing test framework: adding a library is a new dependency, so mention it as optional and don't require it. A property gap over code you believe is correct is a `Nit` under the grading rule; the fix phase still writes it, and if it fails, the failure is the bug.
+
 For each finding, state what's untested or wrong, why it matters (what real bug would slip through), and the specific test to add or fix — concrete enough that the fix phase can write it. Don't pad the report with praise for covered areas; a short "covered adequately: X, Y" line is enough.
