@@ -30,7 +30,7 @@ Things it caught before merge:
 1. Works out the diff: a range you pass, or the branch's commits plus uncommitted changes.
 2. Launches one fresh agent per reviewer. Each grades its findings Important (would hurt in production) or Nit. Each reads only its own checklist and the diff. It doesn't see the conversation, so the author's reasoning can't sway it.
 3. Sends every Important finding, and every confirmed Medium+ security finding, to a second agent whose job is to refute it. Findings it disproves are dropped, and overstated ones are downgraded. For a finding it can't disprove, it writes a test that should fail.
-4. Runs each of those tests to watch the bug fail, fixes it, and keeps the test. It then writes and runs the property tests the test reviewer specified, so a failing property becomes a confirmed bug or a corrected property. It also fixes the Nits, proves every other new test can fail, and returns three lists: **Fixed**, **Needs a decision**, **Couldn't verify**.
+4. Runs each of those tests to watch the bug fail, fixes it, and keeps the test. It then writes and runs the property tests the test reviewer specified, so a failing property becomes a confirmed bug or, once a fresh refuter agrees the behavior is intended, a corrected property. A failing security property it can't settle goes under Needs a decision. It also fixes the Nits, proves every other new test can fail, and returns three lists: **Fixed**, **Needs a decision**, **Couldn't verify**.
 
 | Reviewer | Runs | Checklist |
 |---|---|---|
