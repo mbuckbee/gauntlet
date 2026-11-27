@@ -16,7 +16,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { DiffFilter, git, exportFiles } = require("./lib/diff-filter.cjs");
+const { DiffFilter, git, exportFiles, parseArgs } = require("./lib/diff-filter.cjs");
 
 const expandHome = (p) => (p === "~" || p.startsWith("~/") ? path.join(os.homedir(), p.slice(1)) : p);
 const SIDECAR = path.resolve(expandHome(process.env.UI_LINT_DIR || path.join(__dirname, "..", "ui-lint")));
@@ -26,18 +26,8 @@ const SKIP_PATH =
   /(?:^|\/)(?:node_modules|dist|build|out|coverage|vendor|public|\.next|\.astro|tests?|spec|__tests__|__mocks__|e2e|smoke|scripts|\.storybook)\/|\.(?:test|spec|stories|config|min)\.[^/]+$|\.d\.ts$/;
 const KEPT = ["check", "file", "line", "snippet", "tier", "char"];
 
-function parseArgs(argv) {
-  const opts = { base: "origin/main", head: "HEAD", repo: "." };
-  for (let i = 0; i < argv.length; i++) {
-    const m = argv[i].match(/^--(base|head|repo)(?:=(.*))?$/);
-    if (!m) throw new Error(`unknown argument ${argv[i]}`);
-    opts[m[1]] = m[2] ?? argv[++i];
-  }
-  return opts;
-}
-
 function run() {
-  const opts = parseArgs(process.argv.slice(2));
+  const opts = parseArgs(process.argv.slice(2), { base: "origin/main", head: "HEAD", repo: "." });
   const repo = git(opts.repo, "rev-parse", "--show-toplevel").trim();
   const gemfile = path.join(repo, "Gemfile");
   if (fs.existsSync(gemfile) && /gem ["']rails["']/.test(fs.readFileSync(gemfile, "utf8"))) {
