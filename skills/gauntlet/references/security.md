@@ -77,13 +77,14 @@ Prompt injection alone isn't a finding. Require a code-level boundary failure: t
 - **L8. Unbounded delegated loops**: a bounded request can queue repeated spend, sends or mutations with no per-request budget, cancellation or idempotency.
 - **L9. Sub-agent and MCP trust inheritance**: a delegated task receives the full session or credentials instead of the least authority it needs; delegated results are trusted on return; or peer-supplied tool descriptions and metadata are treated as policy instead of an allowlist and handler authorization.
 
-**Known-vulnerable dependencies (only when your prompt includes `osv-deps` output).** `introduced` lists OSV advisories for package versions the diff added to a lockfile. `pre_existing` lists the ones the lockfile already had.
+**Known-vulnerable dependencies (only when your prompt includes `osv-deps` output).** `introduced` lists OSV advisories the diff added to a lockfile. `pre_existing` lists the ones the lockfile already had, including ones that survive a version bump. Advisories ignored by the repo's `osv-scanner.toml` don't appear in either list.
 
 - Each `introduced` entry is a candidate, one per advisory `id`. The advisory supplies the sink and the impact. You supply the source: find where the repo uses the package (a direct import, or the direct dependency that pulls it in) and whether attacker-controlled input reaches the affected API.
   - Reachable: `confirmed`, with a severity from the impact you can show. The `cvss` score is a ceiling, not a floor.
   - Not traceable, or only in dev or build tooling: `confirmed` Low. The vulnerable version still ships, and the fix is cheap.
   - Cite the lockfile, `package@version`, the `id` and its `fixed` versions.
 - A `pre_existing` entry is a finding only if the diff makes it reachable (adds a call into the affected API). Then it's graded like an introduced one, with no `Pre-existing` tag. Otherwise give the count in one line.
+- `configs_changed` lists `osv-scanner.toml` files the diff touched. An ignore the diff adds hides that advisory from both lists, so read each new `IgnoredVulns` entry: an ignore with no reason, or one covering an advisory the code reaches, is a finding.
 - The fix is a bump to the nearest `fixed` version, or of the direct dependency that pins it. Say so when that crosses a major version.
 
 **Severity calibration (every `confirmed` finding gets one; `needs_validation` gets none):**

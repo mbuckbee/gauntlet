@@ -39,6 +39,17 @@ function exportFiles(repo, ref, paths, dir) {
   if (!untar || untar.status !== 0) throw new Error("git archive | tar failed");
 }
 
+// `--name value` / `--name=value` flags; only names present in `defaults`.
+function parseArgs(argv, defaults) {
+  const opts = { ...defaults };
+  for (let i = 0; i < argv.length; i++) {
+    const m = argv[i].match(/^--([a-z]+)(?:=(.*))?$/);
+    if (!m || !(m[1] in defaults)) throw new Error(`unknown argument ${argv[i]}`);
+    opts[m[1]] = m[2] ?? argv[++i];
+  }
+  return opts;
+}
+
 class DiffFilter {
   // pathspecs: limit the diff (directories, globs or explicit files).
   constructor(repo, base, head, pathspecs) {
@@ -168,4 +179,4 @@ class DiffFilter {
   }
 }
 
-module.exports = { DiffFilter, git, norm, exportFiles };
+module.exports = { DiffFilter, git, norm, exportFiles, parseArgs };

@@ -3,28 +3,29 @@
 
 // Known-vulnerable dependencies the diff introduces, from Google's OSV
 // database (osv.dev) via osv-scanner. Scans each lockfile the diff changed,
-// at the merge-base and at head, and reports advisories present at head but
-// not at base. Advisories the lockfile already carried come back separately
-// as pre_existing. Read-only: base versions come from `git show`.
+// at head and at the merge-base, and splits the advisories into ones the diff
+// introduced and ones the lockfile already had. Read-only: the base (and a
+// --head ref) is a `git archive` in a temp dir, so each lockfile is scanned
+// beside the files osv-scanner reads with it (osv-scanner.toml, -r includes).
 //
 //   osv-deps [--base origin/main] [--head <ref>] [--repo .]
 //
 // --head defaults to the working tree, so uncommitted lockfile edits count.
 // Prints one JSON document. Exit 0 always; prints {"skipped": "..."} when no
-// lockfile changed or osv-scanner isn't installed, {"error": "..."} when a
-// scan fails (e.g. api.osv.dev unreachable).
+// lockfile changed or osv-scanner isn't installed, {"error": "..."} when the
+// script itself fails. A lockfile osv-scanner can't scan goes in `errors`.
 //
-// osv-scanner sends package names and versions (never source code) to
-// api.osv.dev.
+// Scans run with --no-resolve: osv-scanner would otherwise resolve manifests
+// (pom.xml, requirements.txt) over the network, fetching from repositories
+// the file names. Manifests are checked for their own pins only. Package
+// names and versions (never source code) go to api.osv.dev.
 
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { git } = require("./lib/diff-filter.cjs");
+const { git, exportFiles, parseArgs } = require("./lib/diff-filter.cjs");
 
-// Lockfiles osv-scanner parses by filename. Manifests without resolved
-// versions (package.json, Gemfile) are left out: their lockfile changes too.
 const LOCKFILES = new Set([
   "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock",
   "Gemfile.lock", "gems.locked",
@@ -33,49 +34,64 @@ const LOCKFILES = new Set([
   "gradle.lockfile", "buildscript-gradle.lockfile", "pom.xml",
   "packages.lock.json", "conan.lock", "renv.lock", "Package.resolved",
 ]);
+// requirements-dev.txt, dev-requirements.txt, requirements/prod.txt: parsed
+// as requirements.txt, which osv-scanner only infers from the exact name.
+const REQUIREMENTS = /(?:^|\/)(?:[^/]*requirements[^/]*|requirements\/[^/]+)\.txt$/;
 const SKIP_PATH = /(?:^|\/)(?:node_modules|vendor|\.git)\//;
 
-function parseArgs(argv) {
-  const opts = { base: "origin/main", head: null, repo: "." };
-  for (let i = 0; i < argv.length; i++) {
-    const m = argv[i].match(/^--(base|head|repo)(?:=(.*))?$/);
-    if (!m) throw new Error(`unknown argument ${argv[i]}`);
-    opts[m[1]] = m[2] ?? argv[++i];
-  }
-  return opts;
+// osv-scanner's -L argument for `file`, or null when it isn't a lockfile.
+function lockfileSpec(file, abs) {
+  if (SKIP_PATH.test(file)) return null;
+  if (LOCKFILES.has(path.basename(file))) return abs;
+  if (REQUIREMENTS.test(file)) return `requirements.txt:${abs}`;
+  return null;
 }
 
-function changedLockfiles(repo, mergeBase, head) {
-  const names = head
-    ? git(repo, "diff", "--name-only", `${mergeBase}...${head}`)
-    : git(repo, "diff", "--name-only", mergeBase) + git(repo, "ls-files", "--others", "--exclude-standard");
-  return [...new Set(names.split("\n").filter(Boolean))]
-    .filter((f) => LOCKFILES.has(path.basename(f)) && !SKIP_PATH.test(f));
+// Files the diff leaves at head, each with its path at the merge-base (which
+// differs for a rename, and is null for a new file).
+function changedFiles(repo, mergeBase, head) {
+  const range = head ? [`${mergeBase}...${head}`] : [mergeBase];
+  const out = [];
+  for (const line of git(repo, "diff", "--name-status", "-M", ...range).split("\n").filter(Boolean)) {
+    const [status, a, b] = line.split("\t");
+    if (status[0] === "D") continue;
+    if (status[0] === "R") out.push({ path: b, basePath: a });
+    else out.push({ path: a, basePath: status[0] === "A" ? null : a });
+  }
+  if (!head) {
+    for (const f of git(repo, "ls-files", "--others", "--exclude-standard").split("\n").filter(Boolean)) {
+      out.push({ path: f, basePath: null });
+    }
+  }
+  return out;
 }
 
-// Write `file` as of `ref` (null = working tree) into dir/<i>/<basename>.
-// Returns the path, or null when the file doesn't exist at that ref.
-function materialize(repo, ref, file, dir, i) {
-  let body;
-  if (ref) {
-    const r = spawnSync("git", ["-C", repo, "show", `${ref}:${file}`], { maxBuffer: 1 << 30 });
-    if (r.status !== 0) return null;
-    body = r.stdout;
-  } else {
-    const p = path.join(repo, file);
-    if (!fs.existsSync(p)) return null;
-    body = fs.readFileSync(p);
+// Requirements files at head that pull in (-r/-c) one of `changed`, so a diff
+// that edits only an included file still gets the file that includes it
+// scanned.
+const INCLUDE = /^\s*-(?:r|c|-requirement|-constraint)[\s=]+(\S+)/;
+function includers(repo, mergeBase, head, changed) {
+  const changedSet = new Set(changed);
+  const files = head
+    ? git(repo, "ls-tree", "-r", "--name-only", head)
+    : git(repo, "ls-files", "--cached", "--others", "--exclude-standard");
+  const out = [];
+  for (const f of files.split("\n").filter((f) => f && lockfileSpec(f, f) && /\.txt$/.test(f))) {
+    const text = head ? git(repo, "show", `${head}:${f}`) : fs.readFileSync(path.join(repo, f), "utf8");
+    const pulls = text.split("\n").some((line) => {
+      const m = line.match(INCLUDE);
+      return m && changedSet.has(path.posix.normalize(path.posix.join(path.posix.dirname(f), m[1])));
+    });
+    if (!pulls) continue;
+    const atBase = spawnSync("git", ["-C", repo, "cat-file", "-e", `${mergeBase}:${f}`]).status === 0;
+    out.push({ path: f, basePath: atBase ? f : null });
   }
-  const out = path.join(dir, String(i), path.basename(file));
-  fs.mkdirSync(path.dirname(out), { recursive: true });
-  fs.writeFileSync(out, body);
   return out;
 }
 
 // Exit codes: 0 clean, 1 vulnerabilities found, 128 no packages found.
-function scan(lockfiles) {
-  if (lockfiles.length === 0) return [];
-  const args = ["scan", "source", "--format", "json", ...lockfiles.flatMap((f) => ["-L", f])];
+function scan(spec) {
+  const args = ["scan", "source", "--format", "json", "--no-resolve", "-L", spec];
   const r = spawnSync("osv-scanner", args, { encoding: "utf8", maxBuffer: 1 << 30 });
   if (r.status === 128) return [];
   if (r.status !== 0 && r.status !== 1) {
@@ -93,28 +109,28 @@ function fixedVersions(vuln, pkg) {
   return [...fixed];
 }
 
-// One entry per (lockfile, package@version, advisory group). A group merges
-// aliases of the same advisory (GHSA + CVE), so it isn't double-counted.
-function flatten(results, lockfileFor) {
+// One entry per (package@version, advisory group). A group merges aliases of
+// the same advisory (GHSA + CVE), so it isn't double-counted.
+function advisories(results, lockfile) {
   const out = [];
   for (const res of results) {
-    const lockfile = lockfileFor(res.source?.path);
     for (const p of res.packages ?? []) {
       const pkg = p.package;
       const byId = new Map((p.vulnerabilities ?? []).map((v) => [v.id, v]));
       for (const g of p.groups ?? []) {
-        const vuln = byId.get(g.ids[0]) ?? {};
+        const id = g.ids[0];
+        const vuln = byId.get(id) ?? {};
         out.push({
           lockfile,
           ecosystem: pkg.ecosystem,
           package: pkg.name,
           version: pkg.version,
-          id: g.ids[0],
-          aliases: (g.aliases ?? []).filter((a) => a !== g.ids[0]),
+          id,
+          aliases: (g.aliases ?? []).filter((a) => a !== id),
           cvss: g.max_severity || null,
           summary: vuln.summary ?? null,
           fixed: fixedVersions(vuln, pkg),
-          url: `https://osv.dev/vulnerability/${g.ids[0]}`,
+          url: `https://osv.dev/vulnerability/${id}`,
         });
       }
     }
@@ -122,8 +138,24 @@ function flatten(results, lockfileFor) {
   return out;
 }
 
+// Scans `targets` ({label, file}) under `root`; returns advisories, with
+// failures pushed onto `errors`.
+function scanAll(root, targets, side, errors) {
+  const found = [];
+  for (const { label, file } of targets) {
+    const abs = path.join(root, file);
+    if (!fs.existsSync(abs)) continue;
+    try {
+      found.push(...advisories(scan(lockfileSpec(file, abs)), label));
+    } catch (e) {
+      errors.push({ lockfile: label, side, message: e.message });
+    }
+  }
+  return found;
+}
+
 function run() {
-  const opts = parseArgs(process.argv.slice(2));
+  const opts = parseArgs(process.argv.slice(2), { base: "origin/main", head: null, repo: "." });
   const repo = git(opts.repo, "rev-parse", "--show-toplevel").trim();
   let mergeBase;
   try {
@@ -132,36 +164,48 @@ function run() {
     return { skipped: `base ref ${opts.base} not found (git fetch origin main?)` };
   }
 
-  const files = changedLockfiles(repo, mergeBase, opts.head);
-  if (files.length === 0) return { skipped: "no lockfile changed" };
-  if (spawnSync("osv-scanner", ["--version"]).status !== 0) {
-    return { skipped: "osv-scanner not installed (brew install osv-scanner)", lockfiles: files };
+  const changed = changedFiles(repo, mergeBase, opts.head);
+  const locks = changed.filter((f) => lockfileSpec(f.path, f.path));
+  const others = changed.map((f) => f.path).filter((f) => !lockfileSpec(f, f));
+  if (others.length) {
+    const seen = new Set(locks.map((f) => f.path));
+    locks.push(...includers(repo, mergeBase, opts.head, others).filter((f) => !seen.has(f.path)));
   }
+  if (locks.length === 0) return { skipped: "no lockfile changed" };
+  const lockfiles = locks.map((f) => f.path);
+  if (spawnSync("osv-scanner", ["--version"]).status !== 0) {
+    return { skipped: "osv-scanner not installed (brew install osv-scanner)", lockfiles };
+  }
+  const configs_changed = changed.map((f) => f.path).filter((f) => path.basename(f) === "osv-scanner.toml");
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "osv-deps-"));
   try {
-    const side = (ref, label) => {
-      const dir = path.join(tmp, label);
-      const map = new Map();
-      files.forEach((f, i) => {
-        const p = materialize(repo, ref, f, dir, i);
-        if (p) map.set(fs.realpathSync(p), f);
-      });
-      const lookup = (p) => (p && map.get(fs.realpathSync(p))) ?? p;
-      return flatten(scan([...map.keys()]), lookup);
+    const snapshot = (ref, name) => {
+      const dir = path.join(tmp, name);
+      fs.mkdirSync(dir);
+      exportFiles(repo, ref, ["."], dir);
+      return dir;
     };
-    const head = side(opts.head, "head");
-    const base = side(mergeBase, "base");
+    const errors = [];
+    const headRoot = opts.head ? snapshot(opts.head, "head") : repo;
+    const head = scanAll(headRoot, locks.map((f) => ({ label: f.path, file: f.path })), "head", errors);
+    // Without advisories at head there is nothing to classify.
+    const withBase = locks.filter((f) => f.basePath);
+    const base = head.length && withBase.length
+      ? scanAll(snapshot(mergeBase, "base"), withBase.map((f) => ({ label: f.path, file: f.basePath })), "base", errors)
+      : [];
 
-    const key = (v) => `${v.lockfile}\t${v.ecosystem}\t${v.package}\t${v.version}\t${v.id}`;
+    // Version is left out of the key: a bump to a version that is still
+    // affected keeps the advisory, it doesn't introduce it.
+    const key = (v) => `${v.lockfile}\t${v.ecosystem}\t${v.package}\t${v.id}`;
     const baseKeys = new Set(base.map(key));
-    const headKeys = new Set(head.map(key));
     const bySeverity = (a, b) => (parseFloat(b.cvss) || 0) - (parseFloat(a.cvss) || 0);
     return {
-      lockfiles: files,
+      lockfiles,
+      configs_changed,
       introduced: head.filter((v) => !baseKeys.has(key(v))).sort(bySeverity),
       pre_existing: head.filter((v) => baseKeys.has(key(v))).sort(bySeverity),
-      resolved: base.filter((v) => !headKeys.has(key(v))).length,
+      errors,
     };
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
