@@ -110,6 +110,14 @@ Set `GUARDRAILS_DIR` to keep the guardrails clone somewhere else. Spoom runs fro
 
 A Rails app that also has a `package.json` gets both dead-code tools. The knip row above applies to it too, and it needs Node.
 
+### Any project with a lockfile
+
+| Tool | What it adds | Install |
+|---|---|---|
+| [osv-scanner](https://google.github.io/osv-scanner/) | Known-vulnerable package versions the diff adds to a lockfile, from Google's [OSV](https://osv.dev) database. The Security reviewer then checks whether the repo reaches the vulnerable code | `brew install osv-scanner`, or a binary from its [releases](https://github.com/google/osv-scanner/releases) |
+
+It runs only when the diff changes a lockfile (npm, Yarn, pnpm, Bun, Bundler, Poetry, uv, pip, Go, Cargo, Composer, Maven, Gradle, NuGet and others). It sends package names and versions to api.osv.dev, never your source code.
+
 ### Any project with a UI
 
 | Tool | What it adds | Install |
