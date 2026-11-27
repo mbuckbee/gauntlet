@@ -27,7 +27,7 @@ for (let i = 0; i < argv.length; i++) {
   if (argv[i] !== "-L") continue;
   const file = argv[++i].replace(/^[\\w.-]+:(?=\\/)/, "");
   const text = fs.readFileSync(file, "utf8");
-  if (text.includes("BROKEN")) { process.stderr.write("could not parse " + file + "\\n"); process.exit(127); }
+  if (text.includes("BROKEN") || (text.includes("FAILBASE") && !text.includes("HEADOK"))) { process.stderr.write("could not parse " + file + "\\n"); process.exit(127); }
   const pins = [];
   if (path.basename(file) === "package-lock.json") {
     for (const [k, v] of Object.entries(JSON.parse(text).packages || {})) {
@@ -48,11 +48,12 @@ for (let i = 0; i < argv.length; i++) {
   const cfg = path.join(path.dirname(file), "osv-scanner.toml");
   const ignored = fs.existsSync(cfg) ? [...fs.readFileSync(cfg, "utf8").matchAll(/id = "([^"]+)"/g)].map((m) => m[1]) : [];
   const packages = pins.map(([name, version, ecosystem]) => {
-    const ids = (db[name + "@" + version] || []).filter((id) => !ignored.includes(id));
+    const entries = (db[name.toLowerCase() + "@" + version] || []).map((e) => e.split("|")).filter(([id]) => !ignored.includes(id));
+    const ids = entries.map(([id]) => id);
     return {
       package: { name, version, ecosystem },
       vulnerabilities: ids.map((id) => ({ id, summary: id, affected: [{ package: { name, ecosystem }, ranges: [{ events: [{ introduced: "0" }, { fixed: "9.9.9" }] }] }] })),
-      groups: ids.map((id) => ({ ids: [id], aliases: [id, "CVE-" + id], max_severity: "7.5" })),
+      groups: entries.map(([id, alias]) => ({ ids: [id], aliases: [id, alias || "CVE-" + id], max_severity: "7.5" })),
     };
   }).filter((p) => p.groups.length);
   results.push({ source: { path: file, type: "lockfile" }, packages });
@@ -247,4 +248,93 @@ test("skips: no lockfile changed, osv-scanner missing, unknown base", (t) => {
   assert.match(noScanner.skipped, /osv-scanner not installed/);
   assert.deepEqual(noScanner.lockfiles, ["package-lock.json"]);
   assert.match(run(["--base", "nope"]).skipped, /base ref nope not found/);
+});
+
+test("an advisory whose primary id changes between versions still matches through its aliases", (t) => {
+  const { run } = setup(t, {
+    db: { "django@2.0": ["GHSA-A|PYSEC-A"], "django@2.2.0": ["PYSEC-A|GHSA-A"] },
+    base: { "requirements.txt": "django==2.0\n" },
+    head: { "requirements.txt": "django==2.2.0\n" },
+  });
+  const r = run(["--head", "HEAD"]);
+  assert.deepEqual(ids(r.introduced), []);
+  assert.deepEqual(ids(r.pre_existing), ["django@2.2.0 PYSEC-A"]);
+});
+
+test("a new copy added beside a still-present vulnerable version is introduced", (t) => {
+  const { run } = setup(t, {
+    db: { "foo@1.0.0": ["X"], "foo@1.1.0": ["X"] },
+    base: { "package-lock.json": lock({ "a/node_modules/foo": "1.0.0" }) },
+    head: { "package-lock.json": lock({ "a/node_modules/foo": "1.0.0", foo: "1.1.0" }) },
+  });
+  const r = run(["--head", "HEAD"]);
+  assert.deepEqual(ids(r.introduced), ["foo@1.1.0 X"]);
+  assert.deepEqual(ids(r.pre_existing), ["foo@1.0.0 X"]);
+});
+
+test("export-ignore in .gitattributes doesn't hide a lockfile from the snapshot", (t) => {
+  const { run } = setup(t, {
+    db: { "django@2.0": ["D"], "requests@2.0": ["R"] },
+    base: { ".gitattributes": "requirements.txt export-ignore\n", "requirements.txt": "requests==2.0\n" },
+    head: { "requirements.txt": "requests==2.0\ndjango==2.0\n" },
+  });
+  for (const args of [[], ["--head", "HEAD"]]) {
+    const r = run(args);
+    assert.deepEqual(ids(r.introduced), ["django@2.0 D"], `args ${args}`);
+    assert.deepEqual(ids(r.pre_existing), ["requests@2.0 R"], `args ${args}`);
+  }
+});
+
+test("a requirements file deleted from disk but still in the index doesn't break the run", (t) => {
+  const { repo, run } = setup(t, {
+    db: { "minimist@1.2.0": ["NEW"] },
+    base: { "requirements-old.txt": "x==1\n", "app.js": "1\n" },
+    head: { "app.js": "2\n", "package-lock.json": lock({ minimist: "1.2.0" }) },
+    commit: false,
+  });
+  fs.rmSync(path.join(repo, "requirements-old.txt"));
+  const r = run();
+  assert.equal(r.error, undefined, r.error);
+  assert.deepEqual(ids(r.introduced), ["minimist@1.2.0 NEW"]);
+});
+
+test("a change reached through nested includes rescans the requirements file", (t) => {
+  const { run } = setup(t, {
+    db: { "urllib3@1.24.1": ["U"] },
+    base: {
+      "requirements.txt": "-r requirements/base.in\n",
+      "requirements/base.in": "-r common.in\n",
+      "requirements/common.in": "urllib3==1.24.0\n",
+    },
+    head: { "requirements/common.in": "urllib3==1.24.1\n" },
+  });
+  const r = run(["--head", "HEAD"]);
+  assert.deepEqual(r.lockfiles, ["requirements.txt"]);
+  assert.deepEqual(ids(r.introduced), ["urllib3@1.24.1 U"]);
+});
+
+test("when the base scan fails, head advisories are unclassified, not introduced", (t) => {
+  const { run } = setup(t, {
+    db: { "lodash@1.0.0": ["OLD"] },
+    base: { "requirements.txt": "# FAILBASE\nlodash==1.0.0\n" },
+    head: { "requirements.txt": "# FAILBASE HEADOK\nlodash==1.0.0\n" },
+  });
+  const r = run(["--head", "HEAD"]);
+  assert.deepEqual(ids(r.introduced), []);
+  assert.deepEqual(ids(r.unclassified), ["lodash@1.0.0 OLD"]);
+  assert.equal(r.errors[0].side, "base");
+});
+
+test("a merge-base failure on a valid base ref is an error, not a skip", (t) => {
+  const { git, run } = setup(t, { head: { "package-lock.json": lock({}) } });
+  git("switch", "-q", "--orphan", "other");
+  git("commit", "-q", "--allow-empty", "-m", "unrelated");
+  const r = run(["--head", "HEAD"]);
+  assert.equal(r.skipped, undefined);
+  assert.match(r.error, /merge-base/);
+});
+
+test("a flag with no value is an error", (t) => {
+  const { run } = setup(t, { head: { "package-lock.json": lock({}) } });
+  assert.match(run(["--head"]).error, /missing value for --head/);
 });

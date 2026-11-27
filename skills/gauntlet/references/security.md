@@ -85,6 +85,8 @@ Prompt injection alone isn't a finding. Require a code-level boundary failure: t
   - Cite the lockfile, `package@version`, the `id` and its `fixed` versions.
 - A `pre_existing` entry is a finding only if the diff makes it reachable (adds a call into the affected API). Then it's graded like an introduced one, with no `Pre-existing` tag. Otherwise give the count in one line.
 - `configs_changed` lists `osv-scanner.toml` files the diff touched. An ignore the diff adds hides that advisory from both lists, so read each new `IgnoredVulns` entry: an ignore with no reason, or one covering an advisory the code reaches, is a finding.
+- An ignore the diff removes brings that advisory back as `introduced` though no package changed. Grade it as `pre_existing`.
+- `unclassified` holds advisories from a lockfile whose base scan failed, so the split is unknown. Grade them as `pre_existing`. The failure is already in `errors`.
 - The fix is a bump to the nearest `fixed` version, or of the direct dependency that pins it. Say so when that crosses a major version.
 
 **Severity calibration (every `confirmed` finding gets one; `needs_validation` gets none):**

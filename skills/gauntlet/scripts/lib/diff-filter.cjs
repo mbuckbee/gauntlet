@@ -44,8 +44,10 @@ function parseArgs(argv, defaults) {
   const opts = { ...defaults };
   for (let i = 0; i < argv.length; i++) {
     const m = argv[i].match(/^--([a-z]+)(?:=(.*))?$/);
-    if (!m || !(m[1] in defaults)) throw new Error(`unknown argument ${argv[i]}`);
-    opts[m[1]] = m[2] ?? argv[++i];
+    if (!m || !Object.hasOwn(defaults, m[1])) throw new Error(`unknown argument ${argv[i]}`);
+    const value = m[2] ?? argv[++i];
+    if (value === undefined || (m[2] === undefined && value.startsWith("--"))) throw new Error(`missing value for --${m[1]}`);
+    opts[m[1]] = value;
   }
   return opts;
 }
